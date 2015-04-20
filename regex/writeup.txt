@@ -1,0 +1,21 @@
+tl;dr We used a SAT formulation of the problem and used minisat to solve it.
+
+Step 1: Introduce a variable for each position/character, meaning that the given
+character is at that position of the final string. Conjecture that for each
+position, one of the variables must be true (one clause per position).
+
+Step 2: Introduce for every combination of position/character set a new variable
+that means that none of the characters in the set is at that position. Add
+implications to the negation of the corresponding position/character variables
+from above.
+
+For each alternative in the regex, add an OR clause of the up to three variables
+from step 2 that describe the alternative.
+
+Solve the resulting instance with minisat.
+
+Reconstruct the solution string.
+
+$ python2 solve.py
+$ minisat instance2.txt solution2.txt
+$ python2 solve.py
