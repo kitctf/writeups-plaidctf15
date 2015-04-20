@@ -1,0 +1,5 @@
+We guessed that maybe there would be a weak private key in case where e > phi(n).
+So we randomly tried to run Wiener's attack on all the inputs.
+It worked after some time.
+
+solve.py solves the task, but takes really long.
