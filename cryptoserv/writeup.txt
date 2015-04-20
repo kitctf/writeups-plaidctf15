@@ -1,0 +1,5 @@
+- reversed the program to understand the protocol, it's basically a VM that
+  accepts custom byte code for a block cipher and implements CBC on top of it
+- dumped the TCP stream (stream.raw)
+- wrote a script (solve.py) to decode the opcodes, brought it into a nicer
+  representation (local2 in the python code), then reversed it.

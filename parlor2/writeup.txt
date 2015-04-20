@@ -1,0 +1,22 @@
+- contructed an N such that N - 1 is the product of many small primes and N + 1
+  is prime itself. Then we have that phi(N) = N - 1 has many small prime factors
+  and solving dlog in the field of integers mod N is easy using the Pohlig-Hellman
+  algorithm. We chose N = 2*23*269*271*...*787 + 1
+- use a generator g of the multiplicative group mod N as the cipher text we commit
+  to up front. In this case g = 11
+- generate two private keys d0 and d1 such that g^d0 = m0 (mod N) and g^d1 = m1 (mod N)
+  where m0 = oaep_pad("I hereby commit to a guess of 0") and
+  m1 = oaep_pad("I hereby commit to a guess of 1").
+- we need to be careful when packing the private key, we have to compute e as the
+  inverse of d mod phi(N) because of RSA blinding and we have to set p = q = 0
+  to avoid that the decryption algo choses the "slow path" where it actually performs
+  the computation C^d mod N instead of computing C^d mod {P,Q} and then using CRT
+  to reconstruct the plaintext
+- Now we win, we commit to the ciphertext g, chose o = 2 and depending on the
+  outcome of the coin flip we send the correct private key
+
+Scripts:
+- solve.py generates the two private keys
+- rsatool.py was used to convert the keys to PEM because Crypto wouldn't let us
+  set p = q = 0
+- doit2.py was used to talk to the server and get the flag
