@@ -1,0 +1,9 @@
+We select two of the (e, c) pairs with gcd 1, call them (e0, c0) and (e1, c1).
+Then we can find s and t using the extended Euclidean algorithm with
+s * e0 + t * e1 = 1.
+
+Now we compute c0^s * c1^t and we get m^(s * e0 + t * e1) = m.
+To compute c^x with negative x we just compute (c^-1)^(-x) where c^-1 is the modular
+inverse of c mod N.
+
+solve.py is a script that outputs the flag.
