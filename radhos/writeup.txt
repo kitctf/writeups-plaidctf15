@@ -1,0 +1,5 @@
+We used the attack from https://131002.net/siphash/poc.py to reconstruct the
+PRNG seed, then used offline brute force to produce a collision with the magic key.
+
+solve.py executes the attack, collide is a C++ program to find a collision with
+a given string for the given seed.
