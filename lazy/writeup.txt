@@ -1,0 +1,7 @@
+There are well-known attacks on the Merkle-Hellman cryptosystem. We decided
+to use the more generic one based on LLL, because that's readily available.
+The description at http://www.math.ucsd.edu/~crypto/Projects/JenniferBakker/Math187/
+helped us build the matrix we needed to use.
+
+solve.sage is a SAGE program that solves the task and outputs a corrupted version
+of the flag. We manually fixed the output to obtain the real flag.
