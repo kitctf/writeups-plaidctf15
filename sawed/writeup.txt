@@ -1,0 +1,7 @@
+we guessed that the wasd characters represent the corresponding key presses in
+computer games, where they are often used for navigation. We wrote a simple script
+that traced the 2-d positions of our "cursor" and played with different
+interpretation of the interleaved e characters. We finally figured out that they
+toggle a drawing mode where the positions of the cursor are filled with black.
+
+The solve.py python script reconstructs and displays the resulting image.

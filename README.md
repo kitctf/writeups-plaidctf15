@@ -8,7 +8,6 @@
 * ECE's Revenge2
 * Kolmogorov
 * Unknown
-* Sawed
 * Clifford
 * EBP
 * PNG Uncorrupt
