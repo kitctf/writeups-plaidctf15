@@ -1,0 +1,8 @@
+jumble mumble was a slightly obfuscated binary, which used conditional jumps to the string "poop" to throw off static analysis.
+In essence it took a hex-encoded string from argv[1] and split it into chunks of 4 DWORDS. In one round the dwords would be
+mangled with each other and then they all together would be interpreted as a quadratic matrix. The matrix would then be
+rotated counter-clockwise by 90 degrees, before the next round starts. In a total of 0x80 rounds, four different functions
+were chosen depending upon the round number to mangle the sets of DWORDS (A, B, C, D). After 0x80 rounds, the result would
+be strcmp'ed to the string "The flag is *not* poop [...]" and if they matched, the given input had to be submitted as flag.
+
+The rotate and mangles are bijective and reversing the whole algorithm with the aforementioned string yielded indeed the flag.
