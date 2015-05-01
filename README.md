@@ -7,4 +7,3 @@
 * Kolmogorov
 * Clifford
 * EBP
-* PNG Uncorrupt
